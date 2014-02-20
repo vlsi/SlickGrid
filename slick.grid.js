@@ -64,6 +64,7 @@ if (typeof Slick === "undefined") {
       autoEdit: true,
       enableCellNavigation: true,
       enableColumnReorder: true,
+      enableDeepExtractors: true,
       asyncEditorLoading: false,
       asyncEditorLoadDelay: 100,
       forceFitColumns: false,
@@ -1189,15 +1190,38 @@ if (typeof Slick === "undefined") {
       return columns;
     }
 
+    // options.dataItemColumnValueExtractor wants columnDef, however we call columnDef.dataItemColumnValueExtractor(value)
+    // createExtractor is used to allow usage of options.dataItemColumnValueExtractor as columnDef.dataItemColumnValueExtractor
+    function createExtractor(defaultExtractor, columnDef) {
+      return function(value) {
+        return defaultExtractor(value, columnDef);
+      }
+    }
+    function createNonDeepExtractor(field) {
+      return function(value) {
+        return value[field];
+      }
+    }
+
     function updateColumnCaches() {
       // Pre-calculate cell boundaries.
       columnPosLeft = [];
       columnPosRight = [];
       var x = 0;
       for (var i = 0, ii = columns.length; i < ii; i++) {
+        var m = columns[i];
         columnPosLeft[i] = x;
-        columnPosRight[i] = x + columns[i].width;
-        x += columns[i].width;
+        columnPosRight[i] = x + m.width;
+        x += m.width;
+
+        if (options.dataItemColumnValueExtractor)
+          m.dataItemColumnValueExtractor = createExtractor(options.dataItemColumnValueExtractor, m);
+        else if (m.dataItemColumnValueExtractor)
+          ; // if extractor is already set, just use it
+        else if (options.enableDeepExtractors)
+          m.dataItemColumnValueExtractor = new Function("slick$grid$column", "return slick$grid$column." + m.field);
+        else // create default extractor that gets the required field
+          m.dataItemColumnValueExtractor = createNonDeepExtractor(m.field);
       }
     }
 
@@ -1393,13 +1417,6 @@ if (typeof Slick === "undefined") {
       return column.editor || (options.editorFactory && options.editorFactory.getEditor(column));
     }
 
-    function getDataItemValueForColumn(item, columnDef) {
-      if (options.dataItemColumnValueExtractor) {
-        return options.dataItemColumnValueExtractor(item, columnDef);
-      }
-      return item[columnDef.field];
-    }
-
     function appendRowHtml(stringArray, row, range, dataLength) {
       var d = getDataItem(row);
       var dataLoading = row < dataLength && !d;
@@ -1469,7 +1486,7 @@ if (typeof Slick === "undefined") {
 
       // if there is a corresponding row (if not, this is the Add New row or this data hasn't been loaded yet)
       if (item) {
-        var value = getDataItemValueForColumn(item, m);
+        var value = m.dataItemColumnValueExtractor(item);
         stringArray.push(getFormatter(row, m)(row, cell, value, m, item));
       }
 
@@ -1552,7 +1569,7 @@ if (typeof Slick === "undefined") {
       if (currentEditor && activeRow === row && activeCell === cell) {
         currentEditor.loadValue(d);
       } else {
-        cellNode.innerHTML = d ? getFormatter(row, m)(row, cell, getDataItemValueForColumn(d, m), m, d) : "";
+        cellNode.innerHTML = d ? getFormatter(row, m)(row, cell, m.dataItemColumnValueExtractor(d), m, d) : "";
         invalidatePostProcessingResults(row);
       }
     }
@@ -1579,7 +1596,7 @@ if (typeof Slick === "undefined") {
         if (row === activeRow && columnIdx === activeCell && currentEditor) {
           currentEditor.loadValue(d);
         } else if (d) {
-          node.innerHTML = getFormatter(row, m)(row, columnIdx, getDataItemValueForColumn(d, m), m, d);
+          node.innerHTML = getFormatter(row, m)(row, columnIdx, m.dataItemColumnValueExtractor(d), m, d);
         } else {
           node.innerHTML = "";
         }
@@ -2564,7 +2581,7 @@ if (typeof Slick === "undefined") {
         if (d) {
           var column = columns[activeCell];
           var formatter = getFormatter(activeRow, column);
-          activeCellNode.innerHTML = formatter(activeRow, activeCell, getDataItemValueForColumn(d, column), column, d);
+          activeCellNode.innerHTML = formatter(activeRow, activeCell, column.dataItemColumnValueExtractor(d), column, d);
           invalidatePostProcessingResults(activeRow);
         }
       }
